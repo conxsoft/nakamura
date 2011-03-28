@@ -145,6 +145,7 @@ public class GetPoolStructureServletTest {
       }
     };
     Mockito.when(response.getOutputStream()).thenReturn(servletOutputStream);
+    Mockito.when(response.getWriter()).thenReturn(new PrintWriter(outputStream));
     
     
     getPoolStructureServlet.init(servletConfig);
