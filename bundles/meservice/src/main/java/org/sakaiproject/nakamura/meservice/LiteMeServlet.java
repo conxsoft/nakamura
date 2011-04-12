@@ -128,8 +128,14 @@ public class LiteMeServlet extends SlingSafeMethodsServlet {
       response.setContentType("application/json");
       response.setCharacterEncoding("UTF-8");
       javax.jcr.Session jcrSession = request.getResourceResolver().adaptTo(javax.jcr.Session.class);
-      Session session =
-        StorageClientUtils.adaptToSession(jcrSession);
+      final Session session = StorageClientUtils.adaptToSession(request
+          .getResourceResolver().adaptTo(javax.jcr.Session.class));
+      if (session == null) {
+        LOG.error("########## session is null");
+        response.sendError(HttpServletResponse.SC_UNAUTHORIZED,
+        "Access denied error.");
+        return;
+      }
       AuthorizableManager um = session.getAuthorizableManager();
       Authorizable au = um.findAuthorizable(session.getUserId());
       PrintWriter w = response.getWriter();

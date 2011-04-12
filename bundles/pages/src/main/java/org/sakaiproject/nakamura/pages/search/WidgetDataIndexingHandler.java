@@ -22,20 +22,23 @@ import com.google.common.collect.Lists;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.felix.scr.annotations.Activate;
+import org.apache.felix.scr.annotations.Component;
 import org.apache.felix.scr.annotations.Deactivate;
 import org.apache.felix.scr.annotations.Reference;
+import org.apache.felix.scr.annotations.Service;
 import org.apache.solr.client.solrj.util.ClientUtils;
 import org.apache.solr.common.SolrInputDocument;
 import org.osgi.service.event.Event;
 import org.sakaiproject.nakamura.api.lite.Session;
 import org.sakaiproject.nakamura.api.lite.StorageClientException;
 import org.sakaiproject.nakamura.api.lite.accesscontrol.AccessDeniedException;
+import org.sakaiproject.nakamura.api.lite.authorizable.Authorizable;
+import org.sakaiproject.nakamura.api.lite.authorizable.AuthorizableManager;
 import org.sakaiproject.nakamura.api.lite.content.Content;
 import org.sakaiproject.nakamura.api.lite.content.ContentManager;
 import org.sakaiproject.nakamura.api.solr.IndexingHandler;
 import org.sakaiproject.nakamura.api.solr.RepositorySession;
 import org.sakaiproject.nakamura.api.solr.ResourceIndexingService;
-import org.sakaiproject.nakamura.api.user.UserConstants;
 import org.sakaiproject.nakamura.util.PathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +50,8 @@ import java.util.Collection;
  * ://confluence.sakaiproject.org/display/KERNDOC/KERN-1675+Searching+Widget+Data} for
  * more details.
  */
+@Component(immediate = true)
+@Service
 public class WidgetDataIndexingHandler implements IndexingHandler {
 
   public static final String INDEXED_FIELDS = "sakai:indexed-fields";
@@ -84,16 +89,16 @@ public class WidgetDataIndexingHandler implements IndexingHandler {
         ContentManager cm = session.getContentManager();
         Content content = cm.get(path);
 
-        String groupPath = getGroupPath(content, cm);
-        if (groupPath == null) {
-          logger.warn("Unable to find group container for widget data [{}]; not indexing widget data", path);
+        String authId = PathUtils.getAuthorizableId(content.getPath());
+        if (authId == null) {
+          logger.warn("Unable to find auth (user,group) container for widget data [{}]; not indexing widget data", path);
           return docs;
         }
 
         Object fields = content.getProperty(INDEXED_FIELDS);
         String[] indexedFields = null;
         if (fields instanceof String) {
-          indexedFields = new String[] { (String) fields };
+          indexedFields = StringUtils.split(String.valueOf(fields), ",");
         } else if (fields instanceof String[]) {
           indexedFields = (String[]) fields;
         }
@@ -101,15 +106,29 @@ public class WidgetDataIndexingHandler implements IndexingHandler {
         // concatenate the fields requested to be indexed.
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < indexedFields.length; i++) {
-          sb.append(indexedFields[i]);
-          if (i < indexedFields.length - 1) {
-            sb.append(' ');
+          Object propVal = content.getProperty(indexedFields[i]);
+          if (propVal != null) {
+            sb.append(propVal).append(' ');
           }
         }
 
         SolrInputDocument doc = new SolrInputDocument();
-        doc.setField("pagepath", groupPath);
+        AuthorizableManager am = session.getAuthorizableManager();
+        Authorizable auth = am.findAuthorizable(authId);
+        if (auth.isGroup()) {
+          doc.setField("type", "g");
+        } else {
+          doc.setField("type", "u");
+        }
+        // set the path here so that it's the first path found when rendering to the
+        // client. the resource indexing service will all nodes of the path and we want
+        // this one first.
+        doc.setField(FIELD_PATH, authId);
+
+        // set the return to a single value field so we can group it
+        doc.setField("returnpath", authId);
         doc.setField("widgetdata", sb.toString());
+        doc.addField(_DOC_SOURCE_OBJECT, content);
         docs.add(doc);
       } catch (StorageClientException e) {
         logger.warn(e.getMessage(), e);
@@ -131,24 +150,5 @@ public class WidgetDataIndexingHandler implements IndexingHandler {
     logger.debug("GetDelete for {} ", event);
     String path = (String) event.getProperty(FIELD_PATH);
     return ImmutableList.of("id:" + ClientUtils.escapeQueryChars(path));
-  }
-
-  /**
-   * Starting at {@link content}, go up the content tree to find a node with
-   * sling:resourceType = sakai/group-home and return the resource path to that node.
-   * 
-   * @param content
-   * @param cm
-   * @return
-   * @throws AccessDeniedException
-   * @throws StorageClientException
-   */
-  private String getGroupPath(Content content, ContentManager cm)
-      throws AccessDeniedException, StorageClientException {
-    if (content.hasProperty(UserConstants.GROUP_HOME_RESOURCE_TYPE)) {
-      return (String) PathUtils.translateAuthorizablePath(content.getPath());
-    } else {
-      return getGroupPath(cm.get(PathUtils.getParentReference(content.getPath())), cm);
-    }
   }
 }

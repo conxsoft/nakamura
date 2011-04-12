@@ -73,7 +73,7 @@ public class ContentPoolCommentServlet extends SlingAllMethodsServlet implements
   private static final String COMMENTS = "comments";
   private static final String COMMENT_ID = "commentId";
   private static final String AUTHOR = "author";
-  private static final String CREATED = "created";
+  private static final String CREATED = "_created";
 
   @Reference
   private ProfileService profileService;
@@ -213,7 +213,7 @@ public class ContentPoolCommentServlet extends SlingAllMethodsServlet implements
       String newNodeName = Long.toString(cal.getTimeInMillis());
       Content newComment = new Content(path + "/" + newNodeName, ImmutableMap.of(AUTHOR,
           (Object)request.getRemoteUser(), COMMENT,
-          body, CREATED, cal.getTimeInMillis()));
+          body));
 
       contentManager.update(newComment);
 
@@ -244,11 +244,11 @@ public class ContentPoolCommentServlet extends SlingAllMethodsServlet implements
     Session adminSession = null;
     try {
       // check that user is a manager of the content item
+      adminSession = repository.loginAdministrative();
       Resource resource = request.getResource();
       Content poolItem = resource.adaptTo(Content.class);
-      Session session = resource.adaptTo(Session.class);
-      AuthorizableManager authorizableManager = session.getAuthorizableManager();
-      User user = (User) authorizableManager.findAuthorizable(session.getUserId());
+      AuthorizableManager authorizableManager = adminSession.getAuthorizableManager();
+      User user = (User) authorizableManager.findAuthorizable(request.getRemoteUser());
 
       // stop now if no comment ID is provided
       if (StringUtils.isBlank(commentId)) {
@@ -258,7 +258,7 @@ public class ContentPoolCommentServlet extends SlingAllMethodsServlet implements
       }
 
       String path = poolItem.getPath() + "/" + COMMENTS + "/" + commentId;
-      ContentManager contentManager = resource.adaptTo(ContentManager.class);
+      ContentManager contentManager = adminSession.getContentManager();
       Content comment = contentManager.get(path);
       if (!isManager(poolItem, user, authorizableManager)
           && !user.getId().equals(comment.getProperty("author"))) {

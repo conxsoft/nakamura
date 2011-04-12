@@ -25,7 +25,6 @@ import org.apache.solr.client.solrj.SolrServer;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.client.solrj.util.ClientUtils;
-import org.apache.solr.common.SolrDocumentList;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.schema.TextField;
 import org.sakaiproject.nakamura.api.lite.Session;
@@ -143,9 +142,9 @@ public class SolrSearchServiceFactoryImpl implements SolrSearchServiceFactory {
     } catch (UnsupportedEncodingException e) {
     }
     QueryResponse response = solrServer.query(solrQuery);
-    SolrDocumentList resultList = response.getResults();
-    LOGGER.info("Got {} hits in {} ms", resultList.size() , response.getElapsedTime());
-    return new SolrSearchResultSetImpl(response);
+    SolrSearchResultSetImpl rs = new SolrSearchResultSetImpl(response);
+    LOGGER.info("Got {} hits in {} ms", rs.getSize(), response.getElapsedTime());
+    return rs;
   }
 
   /**
@@ -278,6 +277,10 @@ public class SolrSearchServiceFactoryImpl implements SolrSearchServiceFactory {
    */
   private void parseSort(SolrQuery solrQuery, String val) {
     String[] sort = StringUtils.split(val);
+    // we don't support score sorting at all yet
+    if ("score".equals(sort[0])) {
+    	return;
+    }
     switch (sort.length) {
       case 1:
       solrQuery.setSortField(sort[0], ORDER.asc);

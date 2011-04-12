@@ -1,5 +1,8 @@
 package org.sakaiproject.nakamura.profile.servlet;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+
 import org.apache.felix.scr.annotations.Activate;
 import org.apache.felix.scr.annotations.Reference;
 import org.apache.felix.scr.annotations.ReferenceCardinality;
@@ -7,10 +10,8 @@ import org.apache.felix.scr.annotations.ReferencePolicy;
 import org.apache.felix.scr.annotations.sling.SlingServlet;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.api.SlingHttpServletResponse;
-import org.apache.sling.api.request.RequestParameter;
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceUtil;
-import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.api.servlets.HtmlResponse;
 import org.apache.sling.api.servlets.SlingAllMethodsServlet;
 import org.apache.sling.commons.json.JSONException;
@@ -22,6 +23,7 @@ import org.sakaiproject.nakamura.api.lite.Session;
 import org.sakaiproject.nakamura.api.lite.StorageClientException;
 import org.sakaiproject.nakamura.api.lite.accesscontrol.AccessDeniedException;
 import org.sakaiproject.nakamura.api.lite.authorizable.Authorizable;
+import org.sakaiproject.nakamura.api.lite.authorizable.AuthorizableManager;
 import org.sakaiproject.nakamura.api.lite.content.Content;
 import org.sakaiproject.nakamura.api.profile.ProfileConstants;
 import org.sakaiproject.nakamura.api.profile.ProfileService;
@@ -29,19 +31,16 @@ import org.sakaiproject.nakamura.api.resource.JSONResponse;
 import org.sakaiproject.nakamura.api.resource.lite.ResourceModifyOperation;
 import org.sakaiproject.nakamura.api.resource.lite.SparsePostOperation;
 import org.sakaiproject.nakamura.api.resource.lite.SparsePostProcessor;
-import org.sakaiproject.nakamura.util.ExtendedJSONWriter;
 import org.sakaiproject.nakamura.util.PathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import javax.jcr.RepositoryException;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -101,26 +100,19 @@ public class ProfileUpdateServlet extends SlingAllMethodsServlet {
         // prepare the response
         HtmlResponse htmlResponse = new JSONResponse();
         htmlResponse.setReferer(request.getHeader("referer"));
-        // KERN-1654 begin - authz is missing picture property
-        final RequestParameter picture = request.getRequestParameter("picture");
-        if (picture != null) {
-          final JSONObject pictureJson = new JSONObject(picture.getString("UTF-8"));
-          final JSONObject valueJson = new JSONObject().put("value",
-              pictureJson.toString());
+        Map<String,String> authzProperties = propertiesToUpdate(request, ImmutableSet.of("picture", "sakai:group-title", "sakai:group-description"));
+        if (!authzProperties.isEmpty()) {
           final Resource resource = request.getResource();
           final Content targetContent = resource.adaptTo(Content.class);
           final Session session = resource.adaptTo(Session.class);
-          javax.jcr.Session jcrSession = resource.adaptTo(javax.jcr.Session.class);
           String authId = PathUtils.getAuthorizableId(targetContent.getPath());
-          Authorizable au = session.getAuthorizableManager().findAuthorizable(authId);
-          StringWriter w = new StringWriter();
-          ExtendedJSONWriter writer = new ExtendedJSONWriter(w);
-          ValueMap profileMap = profileService.getCompactProfileMap(au, jcrSession);
-          writer.valueMap(profileMap);
-          JSONObject profileJson = new JSONObject(w.toString());
-          profileJson.getJSONObject("basic").getJSONObject("elements").put("picture", pictureJson);
-          profileService.update(session, targetContent.getPath(), profileJson);
-        } // KERN-1654 end
+          AuthorizableManager am = session.getAuthorizableManager();
+          Authorizable au = am.findAuthorizable(authId);
+          for (String key : authzProperties.keySet()) {
+            au.setProperty(key, authzProperties.get(key));
+          }
+          am.updateAuthorizable(au);
+        }
         if (postOperations.containsKey(operation)) {
           postOperations.get(operation).run(request, htmlResponse, new SparsePostProcessor[]{});
         } else {
@@ -145,12 +137,21 @@ public class ProfileUpdateServlet extends SlingAllMethodsServlet {
     } catch (AccessDeniedException e) {
       response.sendError(HttpServletResponse.SC_FORBIDDEN, e.getMessage());
       return;
-    } catch (RepositoryException e) {
-      throw new ServletException(e.getMessage(), e);
     }
 
   }
 
+  private Map<String, String> propertiesToUpdate(SlingHttpServletRequest request,
+      ImmutableSet<String> propNames) {
+    Map<String, String> rv = Maps.newHashMap();
+    for (String propName : propNames) {
+      String propValue = request.getParameter(propName);
+      if (propValue != null) {
+        rv.put(propName, propValue);
+      }
+    }
+    return rv;
+  }
   /**
    * compute redirect URL (SLING-126)
    *
