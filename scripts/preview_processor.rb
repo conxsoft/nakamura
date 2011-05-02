@@ -8,6 +8,18 @@ require 'ruby-lib-dir.rb'
 require 'sling/sling'
 include SlingInterface
 
+# override the initialize_http_header method that sling.rb overrides
+# in order to properly set the referrer
+module Net::HTTPHeader
+  def initialize_http_header(initheader)
+      @header = { "Referer" => [ARGV[0]] }
+      return unless initheader
+      initheader.each do |key, value|
+        warn "net/http: warning: duplicated HTTP header: #{key}" if key?(key) and $VERBOSE
+        @header[key.downcase] = [value.strip]
+      end
+  end
+end
 
 server=ARGV[0]
 @s = Sling.new(server)
